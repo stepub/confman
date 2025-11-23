@@ -1,0 +1,82 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "confman"
+version = "0.1.0"
+description = "Small configuration management library."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+
+authors = [
+  { name = "ste" }
+]
+
+# Runtime dependencies
+dependencies = [
+  "jsonschema>=4.0.0",
+  "PyYAML>=6.0.0",
+  # For Python <3.11 provide tomli, for >=3.11 stdlib tomllib is used
+  "tomli>=2.0.0; python_version < '3.11'",
+]
+
+[project.optional-dependencies]
+test = [
+  "pytest>=7.0",
+  "pytest-cov>=4.0",
+]
+dev = [
+  "pytest>=7.0",
+  "pytest-cov>=4.0",
+  "mypy>=1.0",
+  "ruff>=0.4",
+]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+addopts = [
+  "-ra",                  # show extra summary info
+  "--cov=confman",        # measure coverage for your package
+  "--cov-report=term-missing",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["confman"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+
+[tool.mypy]
+python_version = "3.11"
+packages = ["confman"]
+strict = false
+
+# a litle stronger
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unused_configs = true
+
+# ignore Typing for Third-Party imports
+ignore_missing_imports = true
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+src = ["confman", "tests"]
+
+[tool.ruff.lint]
+# Checks: Pyflakes, pycodestyle, isort, etc.
+select = ["E", "F", "W", "I"]
+#ignore = [
+  # ...
+#]
+
+#[tool.ruff.format]
+#quote-style = "double"
+#indent-style = "space"
+#line-ending = "lf"
