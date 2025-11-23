@@ -94,12 +94,58 @@ class FileSource(ConfigSource):
             f"(extension '{suffix}')"
         )
 
+    def dump(self, data: Mapping[str, Any]) -> None:
+        """
+        Persist configuration data to this file.
+
+        The format is chosen based on the file extension, using the same
+        rules as for `load()`. The write is performed atomically by writing
+        to a temporary file and then replacing the target file.
+        """
+        from pathlib import Path
+
+        # Ensure parent directory exists
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+
+        suffix = self._path.suffix.lower()
+        tmp_path = self._path.with_suffix(self._path.suffix + ".tmp")
+
+        if suffix == ".json":
+            self._dump_json(tmp_path, data)
+        elif suffix == ".toml":
+            self._dump_toml(tmp_path, data)
+        elif suffix in {".ini", ".cfg", ".conf"}:
+            self._dump_ini(tmp_path, data)
+        elif suffix in {".yaml", ".yml"}:
+            self._dump_yaml(tmp_path, data)
+        else:
+            raise ConfigurationError(
+                f"Unsupported configuration file format for writing: {self._path} "
+                f"(extension '{suffix}')"
+            )
+
+        # Atomic replace (os.replace), overwrites existing file
+        try:
+            tmp_path.replace(self._path)
+        except OSError as exc:
+            raise ConfigurationError(
+                f"Could not move temporary config file {tmp_path!r} to {self._path!r}: {exc}"
+            ) from exc
+
     def _load_json(self) -> Mapping[str, Any]:
         try:
             with self._path.open("r", encoding="utf-8") as f:
                 return json.load(f)
         except (OSError, json.JSONDecodeError) as exc:
             raise ConfigurationError(f"Invalid JSON in {self._path}: {exc}") from exc
+
+    def _dump_json(self, path: Path, data: Mapping[str, Any]) -> None:
+        try:
+            with path.open("w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, sort_keys=True)
+                f.write("\n")
+        except OSError as exc:
+            raise ConfigurationError(f"Could not write JSON config {path!r}: {exc}") from exc
 
     def _load_toml(self) -> Mapping[str, Any]:
         if tomllib is None:
@@ -113,6 +159,25 @@ class FileSource(ConfigSource):
         #TODO: tomllib.TOMLDecodeError
         except Exception as exc:
             raise ConfigurationError(f"Invalid TOML in {self._path}: {exc}") from exc
+
+    def _dump_toml(self, path: Path, data: Mapping[str, Any]) -> None:
+        try:
+            import tomli_w  # optional dependency
+        except ImportError as exc:
+            raise ConfigurationError(
+                "Writing TOML configuration requires the optional 'tomli-w' package."
+            ) from exc
+
+        try:
+            toml_text = tomli_w.dumps(data)
+            # tomli_w.dumps may return bytes or str depending on version
+            if not isinstance(toml_text, str):
+                toml_text = toml_text.decode("utf-8")
+
+            with path.open("w", encoding="utf-8") as f:
+                f.write(toml_text)
+        except Exception as exc:
+            raise ConfigurationError(f"Could not write TOML config {path!r}: {exc}") from exc
 
     def _load_ini(self) -> Mapping[str, Any]:
         # Disable interpolation for predictable behavior
@@ -133,6 +198,25 @@ class FileSource(ConfigSource):
             data[section] = section_dict
         return data
 
+    def _dump_ini(self, path: Path, data: Mapping[str, Any]) -> None:
+        parser = configparser.ConfigParser(interpolation=None)
+
+        # Top-level keys become sections. Values must be mappings.
+        for section_name, section_value in data.items():
+            if isinstance(section_value, Mapping):
+                section = parser[section_name]
+                for option, option_value in section_value.items():
+                    section[str(option)] = str(option_value)
+            else:
+                # Non-mapping values go into DEFAULT section
+                parser["DEFAULT"][str(section_name)] = str(section_value)
+
+        try:
+            with path.open("w", encoding="utf-8") as f:
+                parser.write(f)
+        except OSError as exc:
+            raise ConfigurationError(f"Could not write INI config {path!r}: {exc}") from exc
+
     def _load_yaml(self) -> Mapping[str, Any]:
         if yaml is None:
             raise ConfigurationError(
@@ -151,6 +235,23 @@ class FileSource(ConfigSource):
                 f"Top-level YAML structure in {self._path} must be a mapping."
             )
         return data
+
+    def _dump_yaml(self, path: Path, data: Mapping[str, Any]) -> None:
+        if yaml is None:
+            raise ConfigurationError(
+                "Writing YAML configuration requires the optional 'PyYAML' package."
+            )
+
+        try:
+            with path.open("w", encoding="utf-8") as f:
+                yaml.safe_dump(
+                    dict(data),
+                    f,
+                    sort_keys=False,
+                    default_flow_style=False,
+                )
+        except OSError as exc:
+            raise ConfigurationError(f"Could not write YAML config {path!r}: {exc}") from exc
 
 
 class EnvSource(ConfigSource):
