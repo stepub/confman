@@ -252,3 +252,59 @@ data = cfg.to_dict()
 ```
 
 This is safe to mutate without affecting the original configuration object.
+
+### Persisting configuration back to files
+
+`confman` keeps the `Config` object itself read-only. To write configuration changes back to disk, you work with a mutable copy and a `FileSource`:
+
+```python
+from confman import ConfigManager, DictSource, FileSource
+
+default_config = {
+    "app": {
+        "debug": False,
+        "log_level": "INFO",
+    },
+}
+
+user_config = FileSource("config.yaml", optional=True)
+
+manager = ConfigManager(
+    sources=[
+        DictSource(default_config),
+        user_config,
+    ],
+)
+
+# Load merged configuration (defaults + existing user config)
+cfg = manager.load()
+
+# Get a mutable deep copy
+data = cfg.to_dict()
+
+# Apply changes in your application / CLI
+data["app"]["debug"] = True
+
+# (Optional) validate again with your JSON Schema before writing
+
+# Persist back to the same file
+user_config.dump(data)
+```
+
+Notes on write-back behaviour:
+
+* The output format is inferred from the file extension, just like for reading:
+
+  * `.json` – JSON
+  * `.toml` – TOML (requires `tomli-w`)
+  * `.ini`, `.cfg`, `.conf` – INI via `configparser`
+  * `.yaml`, `.yml` – YAML (requires `PyYAML`)
+* Write operations are designed to be *atomic*:
+
+  * Data is written to a temporary file first
+  * The temporary file then replaces the target file
+
+This keeps the configuration model simple:
+
+* All sources participate in reading/merging
+* You choose explicitly *which* file to write back to (usually a user-level config file), via the corresponding `FileSource`.
