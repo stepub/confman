@@ -23,6 +23,12 @@ class Config(Mapping[str, Any]):
     def __getitem__(self, key: str) -> Any:
         return _wrap_nested(self._data[key])
 
+    def __setitem__(self, key, value):
+        raise TypeError("Config is read-only")
+
+    def __delitem__(self, key):
+        raise TypeError("Config is read-only")
+
     def __iter__(self) -> Iterator[str]:
         return iter(self._data)
 
@@ -52,6 +58,7 @@ class Config(Mapping[str, Any]):
         # Avoid dumping potentially huge or sensitive configs verbosely
         keys_preview = ", ".join(list(self._data.keys())[:5])
         more = "..." if len(self._data) > 5 else ""
+        #return f"Config(keys=[{keys_preview}{more}])"
         return f"<Config keys=[{keys_preview}{more}]>"
 
 

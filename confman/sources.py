@@ -98,7 +98,7 @@ class FileSource(ConfigSource):
         try:
             with self._path.open("r", encoding="utf-8") as f:
                 return json.load(f)
-        except json.JSONDecodeError as exc:
+        except (OSError, json.JSONDecodeError) as exc:
             raise ConfigurationError(f"Invalid JSON in {self._path}: {exc}") from exc
 
     def _load_toml(self) -> Mapping[str, Any]:
@@ -110,6 +110,7 @@ class FileSource(ConfigSource):
         try:
             with self._path.open("rb") as f:
                 return tomllib.load(f)
+        #TODO: tomllib.TOMLDecodeError
         except Exception as exc:
             raise ConfigurationError(f"Invalid TOML in {self._path}: {exc}") from exc
 
