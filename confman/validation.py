@@ -26,7 +26,7 @@ def validate_config(data: Mapping[str, Any], schema: Mapping[str, Any] | None) -
     try:
         jsonschema.validate(instance=data, schema=schema)
     except Exception as exc:
-        # Try to provide a helpful error message if jsonschema exposes path/message
+        #TODO: ValidationError, SchemaError
         path = getattr(exc, "path", ())
         path_str = ".".join(str(p) for p in path) if path else "<root>"
         message = getattr(exc, "message", str(exc))

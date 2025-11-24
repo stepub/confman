@@ -12,6 +12,7 @@ def deep_merge(base: Mapping[str, Any], override: Mapping[str, Any]) -> Dict[str
     Nested mappings are merged, all other values are replaced.
     """
     result: Dict[str, Any] = dict(base)
+    #TODO: recursion protect
     for key, value in override.items():
         if (
             key in result

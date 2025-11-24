@@ -30,7 +30,7 @@ except ImportError:  # pragma: no cover
 # Optional YAML support (PyYAML)
 yaml: Any | None
 try:
-    import yaml as _yaml  # type: ignore[import]
+    import yaml as _yaml
     yaml = _yaml
 except ImportError:  # pragma: no cover
     yaml = None
@@ -201,14 +201,15 @@ class FileSource(ConfigSource):
     def _dump_ini(self, path: Path, data: Mapping[str, Any]) -> None:
         parser = configparser.ConfigParser(interpolation=None)
 
-        # Top-level keys become sections. Values must be mappings.
         for section_name, section_value in data.items():
             if isinstance(section_value, Mapping):
+                if not parser.has_section(section_name):
+                    parser.add_section(section_name)
                 section = parser[section_name]
                 for option, option_value in section_value.items():
                     section[str(option)] = str(option_value)
             else:
-                # Non-mapping values go into DEFAULT section
+                # Non-mapping values go into DEFAULT section?
                 parser["DEFAULT"][str(section_name)] = str(section_value)
 
         try:
