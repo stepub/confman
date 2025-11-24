@@ -67,3 +67,133 @@ def test_file_source_missing_optional_returns_empty_or_none(tmp_path: Path):
 #
 #    assert loaded["app"]["debug"] is True
 #    assert loaded["database"]["host"] == "db.local"
+
+def test_file_source_dump_json_roundtrip(tmp_path: Path) -> None:
+    """dump() followed by load() should roundtrip JSON configuration data."""
+    config_data = {
+        "app": {
+            "debug": True,
+            "log_level": "DEBUG",
+        },
+        "database": {
+            "host": "db.local",
+            "port": 5433,
+        },
+    }
+
+    config_file = tmp_path / "config.json"
+    source = FileSource(config_file, optional=True)
+
+    # Write configuration via FileSource
+    source.dump(config_data)
+
+    # Ensure file was created
+    assert config_file.exists()
+
+    # Read it back via FileSource
+    loaded = FileSource(config_file).load()
+    assert dict(loaded) == config_data
+
+
+def test_file_source_dump_ini_roundtrip(tmp_path: Path) -> None:
+    """dump() + load() should roundtrip INI configuration data."""
+    config_data = {
+        "app": {
+            "debug": False,
+            "workers": 4,
+        },
+        "database": {
+            "host": "db.local",
+            "port": 5432,
+        },
+    }
+
+    config_file = tmp_path / "config.ini"
+    source = FileSource(config_file, optional=True)
+
+    # This will currently fail if _dump_ini does not create sections properly.
+    source.dump(config_data)
+
+    loaded = FileSource(config_file).load()
+
+    # Values should be parsed back to the appropriate types (bool/int/str)
+    assert loaded == {
+        "app": {
+            "debug": False,
+            "workers": 4,
+        },
+        "database": {
+            "host": "db.local",
+            "port": 5432,
+        },
+    }
+
+
+def test_file_source_dump_yaml_roundtrip_if_pyyaml_installed(tmp_path: Path) -> None:
+    """YAML dump/load roundtrip if PyYAML is available."""
+    yaml = pytest.importorskip("yaml")
+
+    config_data = {
+        "app": {
+            "debug": True,
+            "log_level": "INFO",
+        },
+        "database": {
+            "host": "db.local",
+            "port": 5432,
+        },
+    }
+
+    # Also implicitly tests that parent directories are created
+    config_file = tmp_path / "nested" / "config.yaml"
+    source = FileSource(config_file, optional=True)
+
+    source.dump(config_data)
+    assert config_file.exists()
+
+    loaded = FileSource(config_file).load()
+
+    # Types should survive the roundtrip (bool/int/str)
+    assert loaded == config_data
+
+
+def test_file_source_dump_toml_roundtrip_if_supported(tmp_path: Path) -> None:
+    """
+    TOML dump/load roundtrip if TOML support is available.
+
+    Requires:
+      - confman.sources.tomllib to be non-None (for reading)
+      - tomli-w to be installable (for writing)
+    """
+    # Skip completely if FileSource has no TOML read support configured
+    try:
+        import confman.sources as sources  # type: ignore[import]
+    except Exception:  # pragma: no cover - extremely unlikely
+        pytest.skip("Cannot import confman.sources to check TOML support")
+
+    if getattr(sources, "tomllib", None) is None:
+        pytest.skip("TOML read support not available in confman")
+
+    pytest.importorskip("tomli_w")
+
+    config_data = {
+        "app": {
+            "debug": True,
+            "log_level": "DEBUG",
+        },
+        "database": {
+            "host": "db.toml.local",
+            "port": 6000,
+        },
+    }
+
+    config_file = tmp_path / "config.toml"
+    source = FileSource(config_file, optional=True)
+
+    source.dump(config_data)
+    assert config_file.exists()
+
+    loaded = FileSource(config_file).load()
+
+    # TOML parser should give us the same primitive types back
+    assert loaded == config_data
