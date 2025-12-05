@@ -300,6 +300,7 @@ Notes on write-back behaviour:
   * `.toml` – TOML (requires `tomli-w`)
   * `.ini`, `.cfg`, `.conf` – INI via `configparser`
   * `.yaml`, `.yml` – YAML (requires `PyYAML`)
+
 * Write operations are designed to be *atomic*:
 
   * Data is written to a temporary file first
@@ -309,6 +310,22 @@ This keeps the configuration model simple:
 
 * All sources participate in reading/merging
 * You choose explicitly *which* file to write back to (usually a user-level config file), via the corresponding `FileSource`.
+
+**Note on INI support**
+
+INI files are intentionally limited to a two-level mapping:
+
+```python
+{
+  "section": {
+    "key": <scalar>,  # str, int, float, bool
+  },
+}
+```
+
+Nested mappings, lists and other complex types cannot be written as INI.
+Attempting to dump such structures with `FileSource` will raise a
+`ConfigurationError`. For nested configuration, prefer JSON, TOML or YAML.
 
 ## Raw file support (RawSource)
 

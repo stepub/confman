@@ -197,3 +197,26 @@ def test_file_source_dump_toml_roundtrip_if_supported(tmp_path: Path) -> None:
 
     # TOML parser should give us the same primitive types back
     assert loaded == config_data
+
+def test_file_source_dump_ini_rejects_nested_structures(tmp_path: Path) -> None:
+    """INI dump must fail for nested/non-scalar values (lists, dicts, ...)."""
+    config_data = {
+        "app": {
+            "debug": False,
+            "log_level": "INFO",
+            "prints": [
+                "lila",
+                "red",
+                "green",
+            ],
+            "backups": {
+                "monday": ["8:00", "9:00"],
+            },
+        },
+    }
+
+    config_file = tmp_path / "config.ini"
+    source = FileSource(config_file, optional=True)
+
+    with pytest.raises(ConfigurationError):
+        source.dump(config_data)

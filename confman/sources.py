@@ -201,22 +201,40 @@ class FileSource(ConfigSource):
     def _dump_ini(self, path: Path, data: Mapping[str, Any]) -> None:
         parser = configparser.ConfigParser(interpolation=None)
 
+        def _ensure_scalar(value: Any, path_str: str) -> str:
+            if isinstance(value, (str, int, float, bool)):
+                return str(value)
+
+            raise ConfigurationError(
+                "Cannot dump non-scalar value at "
+                f"{path_str!r} to INI; INI is limited to flat key/value "
+                "pairs. Use JSON, TOML or YAML for nested structures."
+            )
+
         for section_name, section_value in data.items():
-            if isinstance(section_value, Mapping):
-                if not parser.has_section(section_name):
-                    parser.add_section(section_name)
-                section = parser[section_name]
-                for option, option_value in section_value.items():
-                    section[str(option)] = str(option_value)
-            else:
-                # Non-mapping values go into DEFAULT section?
-                parser["DEFAULT"][str(section_name)] = str(section_value)
+            if not isinstance(section_value, Mapping):
+                raise ConfigurationError(
+                    "INI root must be a mapping of section names to mappings. "
+                    f"Found non-mapping value at top-level key {section_name!r}."
+                )
+
+            section_name_str = str(section_name)
+            if not parser.has_section(section_name_str):
+                parser.add_section(section_name_str)
+
+            section = parser[section_name_str]
+
+            for option, option_value in section_value.items():
+                key_path = f"{section_name_str}.{option}"
+                section[str(option)] = _ensure_scalar(option_value, key_path)
 
         try:
             with path.open("w", encoding="utf-8") as f:
                 parser.write(f)
         except OSError as exc:
-            raise ConfigurationError(f"Could not write INI config {path!r}: {exc}") from exc
+            raise ConfigurationError(
+                f"Could not write INI config {path!r}: {exc}"
+            ) from exc
 
     def _load_yaml(self) -> Mapping[str, Any]:
         if yaml is None:
