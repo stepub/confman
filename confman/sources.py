@@ -343,3 +343,158 @@ def _parse_env_like_value(raw: str) -> Any:
         pass
 
     return raw
+
+
+def _apply_file_mode(path: Path, mode: int | None) -> None:
+    """
+    Apply a restrictive file mode to the given path, if requested.
+
+    Only permission bits (0o777) are used. Any higher bits are masked out.
+    """
+    if mode is None:
+        return
+
+    safe_mode = mode & 0o777
+    try:
+        os.chmod(path, safe_mode)
+    except OSError as exc:
+        raise ConfigurationError(
+            f"Could not set permissions on {path!r}: {exc}"
+        ) from exc
+
+
+class RawSource:
+    """
+    Read and write raw configuration data from a single file.
+
+    Unlike DictSource, FileSource and EnvSource, RawSource does NOT participate
+    in ConfigManager merging. It is intended for use cases where the content is
+    treated as an opaque blob (for example templates, SSH configs, or secrets).
+
+    You can operate in either text mode (str) or binary mode (bytes):
+
+    - binary=False (default): load() / dump() work with str and an encoding
+    - binary=True: load() / dump() work with bytes
+
+    Optionally, you can enforce a specific file_mode (e.g. 0o600 for secrets).
+    """
+
+    def __init__(
+        self,
+        path: str | Path,
+        *,
+        binary: bool = False,
+        encoding: str = "utf-8",
+        errors: str = "strict",
+        optional: bool = False,
+        file_mode: int | None = None,
+    ) -> None:
+        """
+        :param path: Path to the file.
+        :param binary: If True, read/write bytes. If False, read/write text.
+        :param encoding: Encoding used in text mode.
+        :param errors: Error handling strategy in text mode ('strict' by default).
+        :param optional: If True, missing file on load() returns None instead of raising.
+        :param file_mode: Optional POSIX file mode (e.g. 0o600). If provided,
+                          chmod() is called on the temp file and final file.
+        """
+        self._path = Path(path).expanduser()
+        self._binary = bool(binary)
+        self._encoding = encoding
+        self._errors = errors
+        self._optional = optional
+        self._file_mode = file_mode
+
+    @property
+    def path(self) -> Path:
+        """Return the resolved file path."""
+        return self._path
+
+    def load(self) -> str | bytes | None:
+        """
+        Load raw content from the file.
+
+        :returns: str or bytes depending on mode, or None if optional and missing.
+        :raises ConfigurationError: on I/O errors or missing non-optional files.
+        """
+        if not self._path.exists():
+            if self._optional:
+                return None
+            raise ConfigurationError(f"Raw configuration file not found: {self._path}")
+
+        if self._binary:
+            try:
+                with self._path.open("rb") as f:
+                    return f.read()
+            except OSError as exc:
+                raise ConfigurationError(
+                    f"Could not read raw binary file {self._path!r}: {exc}"
+                ) from exc
+
+        # text mode
+        try:
+            with self._path.open(
+                "r", encoding=self._encoding, errors=self._errors
+            ) as f:
+                return f.read()
+        except OSError as exc:
+            raise ConfigurationError(
+                f"Could not read raw text file {self._path!r}: {exc}"
+            ) from exc
+
+    def dump(self, data: str | bytes) -> None:
+        """
+        Write raw content to the file atomically.
+
+        - Writes to a temporary file next to the target.
+        - Optionally applies a restrictive file_mode (e.g. 0o600).
+        - Uses os.replace() to atomically move the temp file into place.
+
+        :param data: str (for binary=False) or bytes (for binary=True).
+        :raises TypeError: if data type does not match the selected mode.
+        :raises ConfigurationError: on I/O errors or chmod failures.
+        """
+        if self._binary:
+            if not isinstance(data, (bytes, bytearray, memoryview)):
+                raise TypeError(
+                    "RawSource(binary=True).dump() expects bytes-like data."
+                )
+            payload: bytes
+            if isinstance(data, bytes):
+                payload = data
+            else:
+                payload = bytes(data)
+        else:
+            if not isinstance(data, str):
+                raise TypeError(
+                    "RawSource(binary=False).dump() expects 'str' data."
+                )
+            payload = data
+
+        # Ensure parent directory exists
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+
+        tmp_path = self._path.with_suffix(self._path.suffix + ".tmp")
+
+        try:
+            if self._binary:
+                with tmp_path.open("wb") as f:
+                    f.write(payload)
+            else:
+                with tmp_path.open(
+                    "w", encoding=self._encoding, errors=self._errors
+                ) as f:
+                    f.write(payload)
+
+            # Apply requested file mode to the temp file and final file
+            _apply_file_mode(tmp_path, self._file_mode)
+
+            tmp_path.replace(self._path)
+
+            # Re-apply mode on the final file in case the filesystem adjusts it
+            _apply_file_mode(self._path, self._file_mode)
+
+        except OSError as exc:
+            raise ConfigurationError(
+                f"Could not write raw configuration file {self._path!r}: {exc}"
+            ) from exc

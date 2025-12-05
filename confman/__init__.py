@@ -11,7 +11,7 @@ This package provides:
 
 from .exceptions import ConfigurationError
 from .manager import ConfigManager, Config
-from .sources import DictSource, FileSource, EnvSource
+from .sources import DictSource, FileSource, EnvSource, RawSource
 
 __all__ = [
     "ConfigurationError",
@@ -20,4 +20,5 @@ __all__ = [
     "DictSource",
     "FileSource",
     "EnvSource",
+    "RawSource",
 ]

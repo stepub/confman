@@ -19,7 +19,8 @@ dependencies = [
   "jsonschema>=4.0.0",
 #  "PyYAML>=6.0.0",
   # For Python <3.11 provide tomli, for >=3.11 stdlib tomllib is used
-#  "tomli>=2.0.0; python_version < '3.11'",
+#  "tomli>=2.0; python_version < '3.11'",
+#  "tolmi_w>=1.2",
 ]
 
 [project.optional-dependencies]
