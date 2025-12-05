@@ -28,6 +28,7 @@ It is designed to be lightweight, dependency-aware, and easy to embed into CLI t
   - Attribute access: `cfg.app.debug`
 - **Typed, tested, and tool-friendly**:
   - `pytest`, `mypy`, `ruff` integration for development
+- Optional support for raw files (templates, SSH configs, secrets, …) via `RawSource`.
 
 ---
 
@@ -308,3 +309,129 @@ This keeps the configuration model simple:
 
 * All sources participate in reading/merging
 * You choose explicitly *which* file to write back to (usually a user-level config file), via the corresponding `FileSource`.
+
+## Raw file support (RawSource)
+
+`confman` also ships with a small helper for “opaque” files: `RawSource`.
+
+Unlike the other sources (`DictSource`, `FileSource`, `EnvSource`), `RawSource` **does not participate in `ConfigManager` merging**. It is intended for files that should be treated as a single blob (for example templates, OpenSSH configs, TLS keys, or other secrets).
+
+You can still use it alongside a `ConfigManager` instance, but you manage raw files explicitly instead of merging them into a configuration mapping.
+
+### When to use `RawSource`
+
+Use `RawSource` when:
+
+- You want to manage a single file next to your structured configuration.
+- The file format is not a simple key/value mapping (e.g. custom config formats, templates, generated files).
+- You care about:
+  - **atomic writes** (temp file + `os.replace()`),
+  - **predictable file permissions** (e.g. `0o600` for secrets),
+  - and a simple API (`load()` / `dump()`).
+
+`RawSource` never appears in `ConfigManager.sources` and is never merged into a `Config` object.
+
+### API overview
+
+```python
+from confman import RawSource
+
+RawSource(
+    path: str | pathlib.Path,
+    *,
+    binary: bool = False,
+    encoding: str = "utf-8",
+    errors: str = "strict",
+    optional: bool = False,
+    file_mode: int | None = None,
+)
+````
+
+* **`path`**
+  Path to the file. `~` is expanded via `Path(path).expanduser()`.
+
+* **`binary`**
+
+  * `False` (default): text mode, `load()` returns `str`, `dump()` expects `str`.
+  * `True`: binary mode, `load()` returns `bytes`, `dump()` expects bytes-like data.
+
+* **`encoding` / `errors`**
+  Used in text mode only (`binary=False`), passed to `open(..., encoding=..., errors=...)`.
+
+* **`optional`**
+
+  * `True`: if the file does not exist, `load()` returns `None`.
+  * `False` (default): missing file raises `ConfigurationError`.
+
+* **`file_mode`**
+  Optional POSIX file mode (e.g. `0o600`).
+  If provided, `RawSource` calls `os.chmod()` on the temporary file and on the final file after an atomic `replace()`. Only permission bits (`0o777`) are applied; higher bits are masked out.
+
+Methods:
+
+* `load() -> str | bytes | None`
+* `dump(data: str | bytes) -> None`
+
+Both methods raise `ConfigurationError` on I/O errors; `dump()` additionally raises `TypeError` if the data type does not match the selected mode.
+
+### Example: text file next to your config
+
+```python
+from confman import ConfigManager, FileSource, RawSource
+
+manager = ConfigManager(
+    sources=[
+        FileSource("config.toml", optional=True),
+    ]
+)
+
+config = manager.load()
+
+# Manage an additional banner file as plain text
+banner_source = RawSource("banner.txt", optional=True)
+
+banner = banner_source.load()  # type: str | None
+if banner is None:
+    banner = "Welcome to my app!\n"
+    banner_source.dump(banner)
+
+print(banner)
+```
+
+### Example: secret key with strict permissions
+
+```python
+from pathlib import Path
+from secrets import token_bytes
+
+from confman import RawSource
+
+secret_path = Path("secret.key")
+
+secret_source = RawSource(
+    secret_path,
+    binary=True,
+    optional=True,
+    file_mode=0o600,  # owner read/write only
+)
+
+key = secret_source.load()  # bytes | None
+
+if key is None:
+    # Generate a new 32-byte key
+    key = token_bytes(32)
+    secret_source.dump(key)
+
+# Use `key` (bytes) for encryption, signing, etc.
+```
+
+### Security considerations
+
+* Prefer **binary mode** (`binary=True`) for keys, tokens and other secrets to avoid accidental encoding/decoding issues.
+* Use a restrictive `file_mode` (for example `0o600`) for any sensitive file so that only the owner can read/write it.
+* Writes are **atomic**:
+
+  * data is written to a temporary file next to the target,
+  * permissions are applied,
+  * then `os.replace()` is used to move it into place.
+* On load, `RawSource` will raise `ConfigurationError` if the file exists but cannot be read (I/O error, permission problems, …), so callers can handle this explicitly.
